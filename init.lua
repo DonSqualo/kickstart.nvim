@@ -1,5 +1,5 @@
 --[[
-
+kdsolwath about  
 =====================================================================
 ==================== READ THIS BEFORE CONTINUING ====================
 =====================================================================
@@ -217,8 +217,7 @@ vim.api.nvim_create_autocmd('TextYankPost', {
   callback = function()
     vim.hl.on_yank()
   end,
-})
-
+}) -- Keymap to manually reload config
 -- [[ Install `lazy.nvim` plugin manager ]]
 --    See `:help lazy.nvim.txt` or https://github.com/folke/lazy.nvim for more info
 local lazypath = vim.fn.stdpath 'data' .. '/lazy/lazy.nvim'
@@ -254,6 +253,10 @@ require('lazy').setup({
     build = 'npm add -g live-server',
     cmd = { 'LiveServerStart', 'LiveServerStop' },
     config = true,
+  },
+  {
+    'rmagatti/auto-session',
+    lazy = false,
   },
   {
     'stevearc/conform.nvim',
@@ -472,8 +475,159 @@ require('lazy').setup({
       vim.keymap.set('n', '<leader>sr', builtin.resume, { desc = '[S]earch [R]esume' })
       vim.keymap.set('n', '<leader>s.', builtin.oldfiles, { desc = '[S]earch Recent Files ("." for repeat)' })
       vim.keymap.set('n', '<leader><leader>', builtin.buffers, { desc = '[ ] Find existing buffers' })
+      vim.keymap.set('n', '<leader>n', function()
+        builtin.live_grep {
+          search_dirs = { vim.fn.expand '~/typey-type/typey-type-data/dictionaries/plover/main-3-jun-2018.json' },
+          prompt_title = 'Search Plover Dictionary',
+          layout_strategy = 'vertical',
+          disable_coordinates = true,
+          -- Custom entry maker to clean up the display
+          entry_maker = function(entry)
+            -- Remove file path and line numbers, just show the content
+            local display = entry:gsub('^.-:%d+:', ''):gsub('^%d+:', '')
+            return {
+              value = entry,
+              display = display,
+              ordinal = display,
+            }
+          end,
+        }
+      end, { desc = '[S]earch [P]lover dictionary' })
+      vim.keymap.set('n', '<leader>sp', function()
+        local previewers = require 'telescope.previewers'
 
-      -- Slightly advanced example of overriding default behavior and theme
+        -- Very simple previewer for debugging
+        local simple_previewer = previewers.new_buffer_previewer {
+          title = 'Steno Preview',
+          define_preview = function(self, entry, status)
+            local function create_steno_keyboard(single_stroke)
+              local keys = {}
+
+              -- Parse single stroke into individual keys
+              if single_stroke then
+                for key in single_stroke:gmatch '%S+' do
+                  keys[key] = true
+                end
+              end
+
+              -- Create the keyboard layout
+              local keyboard = {
+                'S T P H     F P L T D',
+                'S K W R  *  R B G S Z',
+                '     A O     E U     ',
+              }
+
+              return keyboard, keys
+            end
+
+            -- In your previewer define_preview function:
+            local display = entry and entry.display or ''
+            local stroke_pattern = '"([^"]+)":%s*"([^"]*)"'
+            local full_stroke, word = display:match(stroke_pattern)
+
+            -- Step 1: Build all the lines
+            local lines = {}
+            local keyboard_data = {} -- Store keyboard info for highlighting
+
+            if full_stroke and word then
+              table.insert(lines, 'Word: ' .. word)
+              table.insert(lines, 'Full Stroke: ' .. full_stroke)
+              table.insert(lines, '')
+
+              -- Split multi-stroke by "/"
+              local strokes = {}
+              for stroke in full_stroke:gmatch '[^/]+' do
+                table.insert(strokes, stroke)
+              end
+
+              -- Display keyboard for each stroke
+              for i, stroke in ipairs(strokes) do
+                if #strokes > 1 then
+                  table.insert(lines, 'Stroke ' .. i .. ': ' .. stroke)
+                  table.insert(keyboard_data, nil) -- No highlighting for stroke label
+                end
+
+                local keyboard, pressed_keys = create_steno_keyboard(stroke)
+                if keyboard then
+                  for _, line in ipairs(keyboard) do
+                    table.insert(lines, line)
+                    table.insert(keyboard_data, pressed_keys) -- Store pressed keys for this line
+                  end
+                end
+
+                if i < #strokes then
+                  table.insert(lines, '')
+                  table.insert(keyboard_data, nil) -- No highlighting for empty line
+                end
+              end
+            else
+              lines = { 'No stroke found', 'Raw: ' .. display }
+            end
+
+            -- Step 1 complete: Set the lines
+            vim.api.nvim_buf_set_lines(self.state.bufnr, 0, -1, false, lines)
+
+            -- Step 2: Apply highlighting
+            vim.cmd [[
+  highlight! StenoPressed ctermfg=green guifg=#00ff00
+  highlight! StenoUnpressed ctermfg=grey guifg=#666666
+]]
+
+            -- Apply highlighting stroke by stroke
+            if full_stroke and word then
+              local strokes = {}
+              for stroke in full_stroke:gmatch '[^/]+' do
+                table.insert(strokes, stroke)
+              end
+
+              local line_idx = 4 -- Start after "Word:", "Full Stroke:", empty line
+
+              for stroke_num, stroke in ipairs(strokes) do
+                -- Skip the "Stroke X:" label line
+                if #strokes > 1 then
+                  line_idx = line_idx + 1
+                end
+
+                -- Highlight the 3 keyboard lines for this stroke
+                for keyboard_line = 1, 3 do
+                  local line = lines[line_idx]
+                  if line then
+                    local col = 0
+                    for char in line:gmatch '.' do
+                      if char:match '[STKPWHRAOEUFPLTD]' then
+                        local is_pressed = stroke:find(char)
+                        local hl_group = is_pressed and 'StenoPressed' or 'StenoUnpressed'
+                        vim.api.nvim_buf_add_highlight(self.state.bufnr, -1, hl_group, line_idx - 1, col, col + 1)
+                      end
+                      col = col + 1
+                    end
+                  end
+                  line_idx = line_idx + 1
+                end
+
+                -- Skip empty line between strokes
+                if stroke_num < #strokes then
+                  line_idx = line_idx + 1
+                end
+              end
+            end
+          end,
+        }
+        builtin.live_grep {
+          search_dirs = { vim.fn.expand '~/typey-type/typey-type-data/dictionaries/plover/main-3-jun-2018.json' },
+          prompt_title = 'Search Plover Dictionary',
+          disable_coordinates = true,
+          previewer = simple_previewer,
+          entry_maker = function(entry)
+            local display = entry:gsub('^.-:%d+:', '')
+            return {
+              value = entry,
+              display = display,
+              ordinal = display,
+            }
+          end,
+        }
+      end, { desc = '[S]earch [P]lover dictionary' })
       vim.keymap.set('n', '<leader>/', function()
         -- You can pass additional configuration to Telescope to change the theme, layout, etc.
         builtin.current_buffer_fuzzy_find(require('telescope.themes').get_dropdown {
@@ -752,6 +906,7 @@ require('lazy').setup({
       local ensure_installed = vim.tbl_keys(servers or {})
       vim.list_extend(ensure_installed, {
         'stylua', -- Used to format Lua code
+        'pyright',
       })
       require('mason-tool-installer').setup { ensure_installed = ensure_installed }
 
